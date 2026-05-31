@@ -3,15 +3,7 @@ const mysql = require('mysql2');
 const cors = require('cors');
 
 const app = express();
-app.use(cors({
-  origin: [
-    'https://marksman--ecom.web.app',
-    'https://marksman-mauve.vercel.app',
-    'http://localhost:5000',
-    'http://localhost:3000',
-  ],
-  methods: ['GET', 'POST'],
-}));
+app.use(cors());
 app.use(express.json());
 
 // ── Database Connection ──
