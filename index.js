@@ -5,9 +5,10 @@ const cors = require('cors');
 const app = express();
 app.use(cors({
   origin: [
+    'https://marksman--ecom.web.app',
     'https://marksman-mauve.vercel.app',
-    'http://localhost:*',
-    'http://localhost:52000',
+    'http://localhost:5000',
+    'http://localhost:3000',
   ],
   methods: ['GET', 'POST'],
 }));
