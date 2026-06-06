@@ -112,15 +112,34 @@ app.post('/orders', (req, res) => {
                           if (err) { res.status(500).json({ error: err.message }); return; }
 
                           // Update order status to completed
-                          db.query('UPDATE orders SET status = ? WHERE id = ?', ['completed', order_id]);
+                          db.query(
+  				'INSERT INTO order_history (user_id, order_id, total_items, total_spent, status) VALUES (?, ?, ?,					 ?, ?)',
+  				[user_id, order_id, items.length, totalRevenue, 'pending'],
+  				(err) => {
+   				 if (err) { res.status(500).json({ error: err.message }); return; }
 
-                          res.json({
-                            message: 'Order placed successfully',
-                            order_id,
-                            total_revenue: totalRevenue,
-                            total_cost: totalCost,
-                            profit
-                          });
+    				// Update user analytics
+    				db.query(
+      `UPDATE users SET
+        total_orders  = total_orders + 1,
+        total_spent   = total_spent + ?,
+        last_order_at = NOW()
+      WHERE id = ?`,
+      [totalRevenue, user_id],
+      (err) => {
+        if (err) { res.status(500).json({ error: err.message }); return; }
+
+        res.json({
+          message: 'Order placed successfully',
+          order_id,
+          total_revenue: totalRevenue,
+         			 total_cost: totalCost,
+          			profit
+        		     });
+      			    }
+   			   );
+  			  }
+			 );
                         }
                       );
                     }
@@ -193,15 +212,49 @@ app.delete('/orders/:id', (req, res) => {
 
                       // Step 4: Delete the order itself
                       db.query(
-                        'DELETE FROM orders WHERE id = ?',
-                        [order_id],
-                        (err) => {
-                          if (err) { res.status(500).json({ error: err.message }); return; }
+  'SELECT * FROM order_history WHERE order_id = ?',
+  [order_id],
+  (err, historyRows) => {
+    if (err) { res.status(500).json({ error: err.message }); return; }
 
-                          res.json({
-                            message: 'Order cancelled successfully',
-                            order_id: order_id
-                          });
+    const history = historyRows[0];
+
+    // Step 5: Delete order_history
+    db.query(
+      'DELETE FROM order_history WHERE order_id = ?',
+      [order_id],
+      (err) => {
+        if (err) { res.status(500).json({ error: err.message }); return; }
+
+        // Step 6: Reverse user analytics
+        db.query(
+          `UPDATE users SET
+            total_orders = total_orders - 1,
+            total_spent  = total_spent - ?
+          WHERE id = ?`,
+          [history.total_spent, history.user_id],
+          (err) => {
+            if (err) { res.status(500).json({ error: err.message }); return; }
+
+            // Step 7: Delete the order itself
+            db.query(
+              'DELETE FROM orders WHERE id = ?',
+              [order_id],
+              (err) => {
+                if (err) { res.status(500).json({ error: err.message }); return; }
+
+                res.json({
+                  message: 'Order cancelled successfully',
+                  order_id: order_id
+                });
+              }
+            );
+          }
+        );
+      }
+    );
+  }
+);
                         }
                       );
                     }
@@ -212,6 +265,37 @@ app.delete('/orders/:id', (req, res) => {
           }
         );
       });
+    }
+  );
+});
+// ────────────────────────────────────────
+// ROUTE 4: GET /orders/user/:user_id
+// Returns order history for a specific user
+// Flutter calls this to populate the profile history page
+// ────────────────────────────────────────
+app.get('/orders/user/:user_id', (req, res) => {
+  const user_id = req.params.user_id;
+
+  // Get order history with item details
+  db.query(
+    `SELECT 
+      oh.id,
+      oh.order_id,
+      oh.total_items,
+      oh.total_spent,
+      oh.status,
+      oh.created_at,
+      GROUP_CONCAT(s.name SEPARATOR ', ') as item_names
+    FROM order_history oh
+    JOIN order_items oi ON oh.order_id = oi.order_id
+    JOIN shoes s ON oi.shoe_id = s.id
+    WHERE oh.user_id = ?
+    GROUP BY oh.order_id
+    ORDER BY oh.created_at DESC`,
+    [user_id],
+    (err, results) => {
+      if (err) { res.status(500).json({ error: err.message }); return; }
+      res.json(results);
     }
   );
 });
