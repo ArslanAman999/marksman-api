@@ -135,6 +135,87 @@ app.post('/orders', (req, res) => {
   );
 });
 
+// ────────────────────────────────────────
+// ROUTE 3: DELETE /orders/:id
+// Cancels an order by deleting it from the database
+// Does 4 things in sequence:
+//   1. Fetches order items to know what stock to restore
+//   2. Restores stock_quantity and sales stats in shoes
+//   3. Deletes order_items, financials rows
+//   4. Deletes the order row itself
+// ────────────────────────────────────────
+app.delete('/orders/:id', (req, res) => {
+  const order_id = req.params.id;
+
+  // Step 1: Get all items in this order before deleting
+  db.query(
+    'SELECT * FROM order_items WHERE order_id = ?',
+    [order_id],
+    (err, items) => {
+      if (err) { res.status(500).json({ error: err.message }); return; }
+      if (items.length === 0) {
+        res.status(404).json({ error: 'Order not found' });
+        return;
+      }
+
+      let itemsProcessed = 0;
+
+      // Step 2: Restore stock and sales stats for each shoe
+      items.forEach((item) => {
+        db.query(
+          `UPDATE shoes SET
+            stock_quantity       = stock_quantity + ?,
+            total_units_sold     = total_units_sold - ?,
+            total_revenue_earned = total_revenue_earned - ?,
+            sold_out_at          = NULL
+          WHERE id = ?`,
+          [item.quantity, item.quantity, item.subtotal, item.shoe_id],
+          (err) => {
+            if (err) { res.status(500).json({ error: err.message }); return; }
+            itemsProcessed++;
+
+            // Once all shoes restored, delete the order records
+            if (itemsProcessed === items.length) {
+
+              // Step 3a: Delete financials
+              db.query(
+                'DELETE FROM financials WHERE order_id = ?',
+                [order_id],
+                (err) => {
+                  if (err) { res.status(500).json({ error: err.message }); return; }
+
+                  // Step 3b: Delete order_items
+                  db.query(
+                    'DELETE FROM order_items WHERE order_id = ?',
+                    [order_id],
+                    (err) => {
+                      if (err) { res.status(500).json({ error: err.message }); return; }
+
+                      // Step 4: Delete the order itself
+                      db.query(
+                        'DELETE FROM orders WHERE id = ?',
+                        [order_id],
+                        (err) => {
+                          if (err) { res.status(500).json({ error: err.message }); return; }
+
+                          res.json({
+                            message: 'Order cancelled successfully',
+                            order_id: order_id
+                          });
+                        }
+                      );
+                    }
+                  );
+                }
+              );
+            }
+          }
+        );
+      });
+    }
+  );
+});
+
 // ── Start Server ──
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
